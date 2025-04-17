@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Route Planner</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f7fafc;
+    }
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+    .sidebar {
+      width: 300px;
+      background-color: white;
+      padding: 20px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      overflow-y: auto;
+    }
+    .header {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 20px;
+    }
+    .search-bar {
+      display: flex;
+      gap: 10px;
+    }
+    #search-location {
+      padding: 10px;
+      width: 100%;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    button {
+      padding: 10px;
+      background-color: #3182ce;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: transform 0.2s ease-in-out;
+    }
+    button:hover {
+      background-color: #2b6cb0;
+      transform: scale(1.1);
+    }
+    .animated-button {
+      padding: 12px;
+      width: 100%;
+      font-size: 16px;
+      background: linear-gradient(45deg, #ff416c, #ff4b2b);
+      color: white;
+      border: none;
+      border-radius: 25px;
+      cursor: pointer;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .animated-button:hover {
+      transform: scale(1.1);
+      box-shadow: 0px 4px 15px rgba(255, 65, 108, 0.5);
+    }
+    .map-container {
+      flex-grow: 1;
+      height: 100%;
+      background-color: #e2e8f0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <h1 class="header">Route Planner</h1>
+      <form id="search-form">
+        <label for="search-location">Search Location</label>
+        <div class="search-bar">
+          <input type="text" id="search-location" placeholder="Search any location..." />
+          <button type="submit">Search</button>
+        </div>
+      </form>
+      <div class="hospitals">
+        <h2>Top Sickle Cell Hospitals</h2>
+        <ul id="hospital-list"></ul>
+      </div>
+      <div class="route-planner">
+        <label for="source">Source Location</label>
+        <input type="text" id="source" placeholder="Enter source location" />
+        <label for="destination">Destination</label>
+        <input type="text" id="destination" placeholder="Enter destination" />
+        <button id="calculate-route">Calculate Route</button>
+      </div>
+      <div id="route-summary" class="route-summary"></div>
+    </div>
+    <div id="map" class="map-container"></div>
+  </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    let map = L.map('map').setView([39.8283, -98.5795], 4);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const hospitals = [
+      { name: "Johns Hopkins Hospital", location: "Baltimore, MD", coordinates: [39.2964, -76.5926] },
+      { name: "Duke University Hospital", location: "Durham, NC", coordinates: [36.0087, -78.9387] },
+      { name: "St. Jude Children's Research Hospital", location: "Memphis, TN", coordinates: [35.1516, -90.0409] },
+      { name: "Children's Hospital of Philadelphia", location: "Philadelphia, PA", coordinates: [39.9480, -75.1932] },
+      { name: "Mayo Clinic", location: "Rochester, MN", coordinates: [44.0225, -92.4669] },
+      { name: "University College London Hospital", location: "London, UK", coordinates: [51.5246, -0.1339] },
+      { name: "Necker–Enfants Malades Hospital", location: "Paris, France", coordinates: [48.8470, 2.3185] },
+      { name: "All India Institute of Medical Sciences (AIIMS)", location: "New Delhi, India", coordinates: [28.5672, 77.2100] },
+      { name: "Christian Medical College (CMC)", location: "Vellore, India", coordinates: [12.9237, 79.1354] },
+      { name: "Tata Memorial Hospital", location: "Mumbai, India", coordinates: [18.9932, 72.8411] },
+      { name: "Postgraduate Institute of Medical Education & Research (PGIMER)", location: "Chandigarh, India", coordinates: [30.7645, 76.7754] },
+      { name: "Apollo Hospitals", location: "Chennai, India", coordinates: [13.0312, 80.2433] },
+    ];
+
+    // Display hospitals as markers on the map
+    hospitals.forEach(hospital => {
+      const marker = L.marker(hospital.coordinates).addTo(map);
+      marker.bindPopup(`<b>${hospital.name}</b><br>${hospital.location}`).openPopup();
+
+      // Create list items for the hospitals on the sidebar
+      const li = document.createElement('li');
+      li.textContent = hospital.name;
+      document.getElementById('hospital-list').appendChild(li);
+
+      // Clicking on a hospital in the sidebar will focus on that hospital's location on the map
+      li.addEventListener('click', () => {
+        map.setView(hospital.coordinates, 13);
+        marker.openPopup();
+      });
+    });
+
+    let routeLayer;
+
+    document.getElementById('search-form').addEventListener('submit', async function(event) {
+      event.preventDefault();
+      const location = document.getElementById('search-location').value;
+      if (!location) return alert('Enter a location');
+      const coords = await searchLocation(location);
+      if (coords) {
+        map.setView(coords, 13);
+        L.marker(coords).addTo(map).bindPopup(location).openPopup();
+      }
+    });
+
+    async function searchLocation(query) {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      return data.length ? [parseFloat(data[0].lat), parseFloat(data[0].lon)] : null;
+    }
+
+    document.getElementById('calculate-route').addEventListener('click', async function() {
+      const source = document.getElementById('source').value;
+      const destination = document.getElementById('destination').value;
+      if (!source || !destination) return alert('Enter both source and destination');
+      const sourceCoords = await searchLocation(source);
+      const destinationCoords = await searchLocation(destination);
+      if (!sourceCoords || !destinationCoords) return alert('Invalid locations');
+
+      if (routeLayer) map.removeLayer(routeLayer);
+      routeLayer = L.Routing.control({
+        waypoints: [
+          L.latLng(sourceCoords[0], sourceCoords[1]),
+          L.latLng(destinationCoords[0], destinationCoords[1])
+        ],
+        routeWhileDragging: true,
+        createMarker: function() { return null; }
+      }).addTo(map);
+    });
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-routing-machine/3.2.12/leaflet-routing-machine.min.js"></script>
+</body>
+</html>
